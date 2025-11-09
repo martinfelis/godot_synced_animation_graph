@@ -1,0 +1,4 @@
+#include "modules/register_module_types.h"
+
+void initialize_synced_blend_tree_module(ModuleInitializationLevel p_level);
+void uninitialize_synced_blend_tree_module(ModuleInitializationLevel p_level);
