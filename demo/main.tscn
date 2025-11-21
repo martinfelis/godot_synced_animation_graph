@@ -1,0 +1,29 @@
+[gd_scene load_steps=4 format=3 uid="uid://svj53e2xoio"]
+
+[ext_resource type="PackedScene" uid="uid://d1xcqdqr1qeu6" path="res://assets/MixamoAmy.glb" id="1_0xm2m"]
+[ext_resource type="AnimationNodeBlendTree" uid="uid://c7o0gt3li5p4g" path="res://walk_limp_blend_tree.tres" id="2_h2yge"]
+[ext_resource type="AnimationLibrary" uid="uid://dwubn740aqx51" path="res://animation_library.res" id="3_h2yge"]
+
+[node name="Node3D" type="Node3D"]
+
+[node name="MixamoAmy" parent="." instance=ExtResource("1_0xm2m")]
+
+[node name="AnimationTree" type="AnimationTree" parent="."]
+active = false
+root_node = NodePath("../MixamoAmy")
+tree_root = ExtResource("2_h2yge")
+anim_player = NodePath("../MixamoAmy/AnimationPlayer")
+parameters/Blend2/blend_amount = 0.44
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+active = false
+root_node = NodePath("../MixamoAmy")
+libraries = {
+&"animation_library": ExtResource("3_h2yge")
+}
+
+[node name="SyncedAnimationGraph" type="SyncedAnimationGraph" parent="."]
+animation_tree = NodePath("../AnimationTree")
+skeleton = NodePath("../MixamoAmy/Armature/Skeleton3D")
+
+[editable path="MixamoAmy"]
