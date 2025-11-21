@@ -156,6 +156,13 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 		return;
 	}
 
+	static double debug_time = 0.;
+	debug_time += p_delta;
+	if (debug_time > 2.0) {
+		debug_time = 0.;
+	}
+
+	current_time = debug_time;
 
 	//	LocalVector<AnimationMixer::TrackCache *> &track_num_to_track_cache = animation_track_num_to_track_cache[a];
 	const Vector<Animation::Track *> tracks = animation->get_tracks();
@@ -185,6 +192,7 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 						Vector3 pos;
 						animation->try_position_track_interpolate(i, animation_time, &pos);
 						skeleton->set_bone_pose_position(bone_idx, pos);
+						print_line(vformat("t = %3.3f: setting bone %d pos to %2.3f, %2.3f, %2.3f", animation_time, bone_idx, pos.x, pos.y, pos.z));
 					}
 				}
 				break;
