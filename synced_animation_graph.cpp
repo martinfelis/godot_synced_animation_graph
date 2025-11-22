@@ -4,7 +4,6 @@
 #include "scene/3d/skeleton_3d.h"
 #include "scene/animation/animation_player.h"
 
-
 void SyncedAnimationGraph::_bind_methods() {
 	print_line(vformat("binding methods"));
 
@@ -219,13 +218,11 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 			default: {
 				break;
 			}
-
 		}
 	}
 
-//	skeleton->set_bone_pose_position(3, Vector3(sin(current_time) * 10., 0., 0.));
+	//	skeleton->set_bone_pose_position(3, Vector3(sin(current_time) * 10., 0., 0.));
 	skeleton->force_update_all_bone_transforms();
-
 
 	//		TrackCache *track = track_num_to_track_cache[i];
 	//		if (track == nullptr) {
@@ -248,7 +245,6 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 //		print_line(vformat("  %s", node_name));
 //	}
 
-
 void SyncedAnimationGraph::_set_process(bool p_process, bool p_force) {
 	if (processing == p_process && !p_force) {
 		return;
@@ -261,4 +257,17 @@ void SyncedAnimationGraph::_set_process(bool p_process, bool p_force) {
 }
 
 SyncedAnimationGraph::SyncedAnimationGraph() {
+}
+
+void AnimationSamplerNode::initialize(GraphEvaluationContext &context) {
+	animation = context.animation_tree->get_animation(animation_name);
+}
+
+void AnimationSamplerNode::evaluate(AnimationData &output) {
+	const Vector<Animation::Track *> tracks = animation->get_tracks();
+	Animation::Track *const *tracks_ptr = tracks.ptr();
+	// real_t a_length = animation->get_length();
+	int count = tracks.size();
+	for (int i = 0; i < count; i++) {
+	}
 }

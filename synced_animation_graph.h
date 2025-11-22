@@ -1,7 +1,8 @@
 #pragma once
 
-#include "scene/animation/animation_blend_tree.h"
 #include "scene/animation/animation_tree.h"
+
+#include <cassert>
 
 class SyncedAnimationGraph : public Node {
 	GDCLASS(SyncedAnimationGraph, Node);
@@ -17,7 +18,7 @@ private:
 	NodePath get_skeleton() const;
 
 	// AnimationMixer::TrackCache
-	
+
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
@@ -50,4 +51,79 @@ public:
 
 private:
 	void _set_process(bool p_process, bool p_force = false);
+};
+
+struct AnimationData {
+	struct TrackValue {
+		Animation::Track *track = nullptr;
+	};
+
+	struct PositionTrackValue : public TrackValue {
+		int bone_idx = -1;
+		Vector3 position = Vector3(0, 0, 0);
+	};
+
+	struct RotationTrackValue : public TrackValue {
+		int bone_idx = -1;
+		Quaternion rotation = Quaternion(0, 0, 0, 1);
+	};
+
+	struct ScaleTrackValue : public TrackValue {
+		int bone_idx = -1;
+		Vector3 scale;
+	};
+
+	AHashMap<Animation::Track, TrackValue *, HashHasher, HashMapComparatorDefault<unsigned>> track_values;
+};
+
+struct GraphEvaluationContext {
+	AnimationTree *animation_tree = nullptr;
+};
+
+class SyncedAnimationNode {
+public:
+	struct NodeTimeInfo {
+		double length = 0.0;
+		double position = 0.0;
+		double delta = 0.0;
+
+		Animation::LoopMode loop_mode = Animation::LOOP_NONE;
+	};
+	NodeTimeInfo node_time_info;
+
+	virtual ~SyncedAnimationNode() = default;
+	virtual void initialize(GraphEvaluationContext &context) {}
+	virtual void activate_inputs(Vector<StringName> input_names) {}
+	virtual void calculate_sync_track() {}
+	virtual void update_time(double p_delta) {
+		node_time_info.position += p_delta;
+		if (node_time_info.position > node_time_info.length) {
+			switch (node_time_info.loop_mode) {
+				case Animation::LOOP_NONE: {
+					node_time_info.position = node_time_info.length;
+					break;
+				}
+				case Animation::LOOP_LINEAR: {
+					assert(node_time_info.length > 0.0);
+					while (node_time_info.position > node_time_info.length) {
+						node_time_info.position -= node_time_info.length;
+					}
+					break;
+				}
+				case Animation::LOOP_PINGPONG: {
+					assert(false && !"Not yet implemented.");
+					break;
+				}
+			}
+		}
+	}
+	virtual void evaluate(AnimationData &output) {}
+};
+
+class AnimationSamplerNode : public SyncedAnimationNode {
+	StringName animation_name;
+	Ref<Animation> animation;
+
+	void initialize(GraphEvaluationContext &context) override;
+	void evaluate(AnimationData &output) override;
 };

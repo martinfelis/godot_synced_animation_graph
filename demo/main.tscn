@@ -23,6 +23,7 @@ libraries = {
 }
 
 [node name="SyncedAnimationGraph" type="SyncedAnimationGraph" parent="."]
+active = false
 animation_tree = NodePath("../AnimationTree")
 skeleton = NodePath("../MixamoAmy/Armature/Skeleton3D")
 
