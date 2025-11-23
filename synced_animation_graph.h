@@ -1,8 +1,11 @@
 #pragma once
 
+#include "scene/animation/animation_player.h"
 #include "scene/animation/animation_tree.h"
 
 #include <cassert>
+
+class Skeleton3D;
 
 class SyncedAnimationGraph : public Node {
 	GDCLASS(SyncedAnimationGraph, Node);
@@ -73,11 +76,38 @@ struct AnimationData {
 		Vector3 scale;
 	};
 
-	AHashMap<Animation::Track, TrackValue *, HashHasher, HashMapComparatorDefault<unsigned>> track_values;
+	AnimationData() = default;
+	~AnimationData() {
+		_clear_values();
+	};
+
+	void set_value(Animation::TypeHash thash, TrackValue *value) {
+		if (!track_values.has(thash)) {
+			track_values.insert(thash, value);
+		} else {
+			track_values[thash] = value;
+		}
+	}
+
+	void clear() {
+		_clear_values();
+	}
+
+	AHashMap<Animation::TypeHash, TrackValue *, HashHasher> track_values; // Animation::Track to TrackValue
+
+protected:
+	void _clear_values() {
+		for (KeyValue<Animation::TypeHash, TrackValue *> &K : track_values) {
+			memdelete(K.value);
+		}
+	}
+
 };
 
 struct GraphEvaluationContext {
 	AnimationTree *animation_tree = nullptr;
+	AnimationPlayer *animation_player = nullptr;
+	Skeleton3D *skeleton_3d = nullptr;
 };
 
 class SyncedAnimationNode {
@@ -117,7 +147,7 @@ public:
 			}
 		}
 	}
-	virtual void evaluate(AnimationData &output) {}
+	virtual void evaluate(GraphEvaluationContext &context, AnimationData &output) {}
 };
 
 class AnimationSamplerNode : public SyncedAnimationNode {
@@ -125,5 +155,5 @@ class AnimationSamplerNode : public SyncedAnimationNode {
 	Ref<Animation> animation;
 
 	void initialize(GraphEvaluationContext &context) override;
-	void evaluate(AnimationData &output) override;
+	void evaluate(GraphEvaluationContext &context, AnimationData &output) override;
 };

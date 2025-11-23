@@ -191,7 +191,6 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 						Vector3 pos;
 						animation->try_position_track_interpolate(i, animation_time, &pos);
 						skeleton->set_bone_pose_position(bone_idx, pos);
-						print_line(vformat("t = %3.3f: setting bone %d pos to %2.3f, %2.3f, %2.3f", animation_time, bone_idx, pos.x, pos.y, pos.z));
 					}
 				}
 				break;
@@ -223,27 +222,7 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 
 	//	skeleton->set_bone_pose_position(3, Vector3(sin(current_time) * 10., 0., 0.));
 	skeleton->force_update_all_bone_transforms();
-
-	//		TrackCache *track = track_num_to_track_cache[i];
-	//		if (track == nullptr) {
-	//			continue; // No path, but avoid error spamming.
-	//		}
 }
-
-//	if (!root_animation_node.is_valid()) {
-//		return;
-//	}
-//
-//	Ref<AnimationNodeBlendTree> blend_tree = root_animation_node;
-//	if (!blend_tree.is_valid()) {
-//		print_line("Cannot process animation graph: root not AnimationNodeBlendTree");
-//		return;
-//	}
-//
-//	LocalVector<StringName> node_names = blend_tree->get_node_list();
-//	for (StringName node_name : node_names) {
-//		print_line(vformat("  %s", node_name));
-//	}
 
 void SyncedAnimationGraph::_set_process(bool p_process, bool p_force) {
 	if (processing == p_process && !p_force) {
@@ -263,11 +242,63 @@ void AnimationSamplerNode::initialize(GraphEvaluationContext &context) {
 	animation = context.animation_tree->get_animation(animation_name);
 }
 
-void AnimationSamplerNode::evaluate(AnimationData &output) {
+
+void AnimationSamplerNode::evaluate(GraphEvaluationContext &context, AnimationData &output) {
 	const Vector<Animation::Track *> tracks = animation->get_tracks();
 	Animation::Track *const *tracks_ptr = tracks.ptr();
 	// real_t a_length = animation->get_length();
 	int count = tracks.size();
 	for (int i = 0; i < count; i++) {
+		AnimationData::TrackValue *track_value = nullptr;
+		const Animation::Track *animation_track = tracks_ptr[i];
+		const NodePath& track_node_path = animation_track->path;
+		if (!animation_track->enabled) {
+			continue;
+		}
+
+		Animation::TrackType ttype = animation_track->type;
+		switch (ttype) {
+			case Animation::TYPE_POSITION_3D: {
+				AnimationData::PositionTrackValue *position_track_value = memnew(AnimationData::PositionTrackValue);
+
+				if (track_node_path.get_subname_count() == 1) {
+					int bone_idx = context.skeleton_3d->find_bone(track_node_path.get_subname(0));
+					if (bone_idx != -1) {
+						position_track_value->bone_idx = bone_idx;
+						animation->try_position_track_interpolate(i, node_time_info.position, &position_track_value->position);
+					}
+				} else {
+					// TODO
+					assert(false && !"Not yet implemented");
+				}
+
+				track_value = position_track_value;
+				break;
+			}
+			case Animation::TYPE_ROTATION_3D: {
+				AnimationData::RotationTrackValue *rotation_track_value = memnew(AnimationData::RotationTrackValue);
+
+				if (track_node_path.get_subname_count() == 1) {
+					int bone_idx = context.skeleton_3d->find_bone(track_node_path.get_subname(0));
+					if (bone_idx != -1) {
+						rotation_track_value->bone_idx = bone_idx;
+						animation->try_rotation_track_interpolate(i, node_time_info.position, &rotation_track_value->rotation);
+					}
+				} else {
+					// TODO
+					assert(false && !"Not yet implemented");
+				}
+
+				track_value = rotation_track_value;
+				break;
+			}
+			default: {
+				// TODO
+				assert(false && !"Not yet implemented");
+				break;
+			}
+		}
+
+		output.set_value(animation_track->thash, track_value);
 	}
 }
