@@ -79,7 +79,7 @@ struct AnimationData {
 	AnimationData() = default;
 	~AnimationData() {
 		_clear_values();
-	};
+	}
 
 	void set_value(Animation::TypeHash thash, TrackValue *value) {
 		if (!track_values.has(thash)) {
@@ -101,7 +101,6 @@ protected:
 			memdelete(K.value);
 		}
 	}
-
 };
 
 struct GraphEvaluationContext {
@@ -110,7 +109,13 @@ struct GraphEvaluationContext {
 	Skeleton3D *skeleton_3d = nullptr;
 };
 
+struct SyncTrack {
+
+};
+
 class SyncedAnimationNode {
+	friend class SyncedAnimationGraph;
+
 public:
 	struct NodeTimeInfo {
 		double length = 0.0;
@@ -118,12 +123,13 @@ public:
 		double delta = 0.0;
 
 		Animation::LoopMode loop_mode = Animation::LOOP_NONE;
+		SyncTrack sync_track;
 	};
 	NodeTimeInfo node_time_info;
 
 	virtual ~SyncedAnimationNode() = default;
 	virtual void initialize(GraphEvaluationContext &context) {}
-	virtual void activate_inputs(Vector<StringName> input_names) {}
+	virtual void activate_inputs(GraphEvaluationContext &context, Vector<StringName> input_names) {}
 	virtual void calculate_sync_track() {}
 	virtual void update_time(double p_delta) {
 		node_time_info.position += p_delta;
@@ -147,7 +153,15 @@ public:
 			}
 		}
 	}
-	virtual void evaluate(GraphEvaluationContext &context, AnimationData &output) {}
+	virtual void evaluate(GraphEvaluationContext &context) {}
+
+	bool is_active() const { return active; }
+	bool set_input_node(const StringName &socket_name, SyncedAnimationNode *node);
+	void get_input_names(Array<StringName> &inputs);
+
+private:
+	AnimationData *output = nullptr;
+	bool active = false;
 };
 
 class AnimationSamplerNode : public SyncedAnimationNode {
