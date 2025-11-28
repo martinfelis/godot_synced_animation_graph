@@ -120,18 +120,28 @@ public:
 	struct NodeTimeInfo {
 		double length = 0.0;
 		double position = 0.0;
+		double sync_position = 0.0;
 		double delta = 0.0;
+		double sync_delta = 0.0;
 
 		Animation::LoopMode loop_mode = Animation::LOOP_NONE;
 		SyncTrack sync_track;
 	};
 	NodeTimeInfo node_time_info;
 
+	struct InputSocket {
+		StringName name;
+		SyncedAnimationNode *node;
+	};
+
+	Vector<InputSocket> input_sockets;
+
 	virtual ~SyncedAnimationNode() = default;
 	virtual void initialize(GraphEvaluationContext &context) {}
 	virtual void activate_inputs(GraphEvaluationContext &context, Vector<StringName> input_names) {}
 	virtual void calculate_sync_track() {}
 	virtual void update_time(double p_delta) {
+		node_time_info.delta = p_delta;
 		node_time_info.position += p_delta;
 		if (node_time_info.position > node_time_info.length) {
 			switch (node_time_info.loop_mode) {
@@ -153,11 +163,11 @@ public:
 			}
 		}
 	}
-	virtual void evaluate(GraphEvaluationContext &context) {}
+	virtual void evaluate(GraphEvaluationContext &context, AnimationData &output) {}
 
 	bool is_active() const { return active; }
 	bool set_input_node(const StringName &socket_name, SyncedAnimationNode *node);
-	void get_input_names(Array<StringName> &inputs);
+	void get_input_names(Vector<StringName> &inputs);
 
 private:
 	AnimationData *output = nullptr;
@@ -170,4 +180,27 @@ class AnimationSamplerNode : public SyncedAnimationNode {
 
 	void initialize(GraphEvaluationContext &context) override;
 	void evaluate(GraphEvaluationContext &context, AnimationData &output) override;
+};
+
+class BlendTree : public SyncedAnimationNode {
+    struct Connection {
+	    const SyncedAnimationNode* source_node = nullptr;
+    	const SyncedAnimationNode* target_node = nullptr;
+    	const StringName target_socket_name = "";
+    };
+
+	Vector<SyncedAnimationNode> nodes;
+	Vector<int> node_parent;
+	Vector<Connection> connections;
+
+public:
+	void connect_nodes(const SyncedAnimationNode* source_node, const SyncedAnimationNode* target_node, StringName target_socket_name) {
+		// TODO
+		// connections.append(Connection{source_node, target_node, target_socket_name});
+		// sort_nodes_by_evaluation_order();
+	}
+
+	void sort_nodes_by_evaluation_order() {
+		// TODO: sort nodes and node_parent s.t. for node i all children have index > i.
+	}
 };

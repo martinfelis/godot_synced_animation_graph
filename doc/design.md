@@ -1,9 +1,23 @@
 # AnimationGraph
 
+## Animation and Animation Data
+
+For Godot an Animation has multiple tracks where each Track is of a specific type such as "Position", "Rotation", "
+Method Call", "Audio Playback", etc. Each Track is associated with a node path on which the value of a sampled Track
+acts.
+
+Animation Data represents a sampled animation for a given time. For each track in an animation it contains the sampled
+values, e.g. a Vector3 for a position, a Quaternion for a rotation, a function name and its parameters, etc.
+
 ## Blend Trees
 
-A Blend Tree is a directed acyclic graph. Nodes produce or process "AnimationData" and the connections transport "
-AnimationData". "AnimationData" here is anything that can be sampled in an Animation.
+A Blend Tree is a directed acyclic graph consisting of nodes with sockets and connections. Input sockets are on the left
+side of a node and output sockets on the right. Nodes produce or process "AnimationData" and the connections transport "
+AnimationData".
+
+Connections can be represented as spaghetti lines from a socket of node A to a socket of node B. The graph is acyclic
+meaning there must not be a loop (e.g. output of node A influences an
+input socket of node A). Such a connection is invalid.
 
 ### Example:
 
@@ -30,22 +44,16 @@ Blend2 --> Output
 @enduml
 ```
 
-A Blend Tree always has a designated output node where the time delta is specified as an input and after processing of
-the Blend Tree it emits the animation data.
+A Blend Tree always has a designated output node where the time delta is specified as an input and after the Blend Tree
+evaluation of the Blend Tree it can be used to retrieve the result (i.e. Animation Data) of the Blend Tree.
 
 Some nodes have special names in the Blend Tree:
 
 * **Root node** The output node is also called the root node of the graph.
 * **Leaf nodes** These are the nodes that have no inputs. In the example these are the nodes AnimationA and AnimationB.
-
-### Animation and Animation Data
-
-For Godot an Animation has multiple tracks where each Track is of a specific type such as "Position", "Rotation", "
-Method Call", "Audio Playback", etc. Each Track is associated with a node path on which the value of a sampled Track
-acts.
-
-Animation Data represents a sampled animation for a given time. For each track in an animation it contains the sampled
-values, e.g. a Vector3 for a position, a Quaternion for a rotation, a function name and its parameters, etc.
+* **Parent and child node** For two nodes A and B where B is the node that is connected to the Animation Data output socket of A
+  is called the parent node. The output socket has no parent and in the example above The Blend2 node is the parent of
+  both AnimationA and TimeScale. Conversely, AnimationA and TimeScale are child nodes of the Blend2 node.
 
 ## State Machines
 
@@ -119,7 +127,7 @@ input at a laters tage in the graph.
     * If so: what happens with the output if the BlendTree is used in a State Machine?
         * => Initially: State Machines only emit Animation Data.
 * Simplest case:
-    * All value data connections are evaluated always before UpdateConnections.
+    * All value data connections are evaluated always before ActivateInputs().
     * BlendTrees (and therefore embedded graphs) cannot emit values.
 
 ### Open Issues
@@ -294,6 +302,10 @@ when a node becomes active/deactivated.
 
 * Depends on "Generalized data connections" an input that does some computation gets reused in two separate subtrees.
 
+### Decision
+
+Re-use of animation data sockets
+
 ## 5. Inputs into Subgraphs
 
 ### Description
@@ -315,38 +327,18 @@ also general input values.
 
 * Inputs to embedded state machines?
 
-## 6. Evaluation API
+## 6. Blend Tree Evaluation Process
 
 ### Description
 
 Evaluation of a node happens in multiple phases:
 
-1. UpdateConnections(): right to left (i.e. from the root node via depth first to the leave nodes)
+1. ActivateInputs(): right to left (i.e. from the root node via depth first to the leave nodes)
 2. CalculateSyncTracks(): left to right (leave nodes to root node)
 3. UpdateTime(): right to left
 4. Evaluate(): left to right
 
 One question here is how to transport the actual data from one node to another. There are essentially two options:
-
-#### Data owned by connections
-
-#### Explicit input node references
-
-Nodes store references or pointers to all input nodes.
-
-``` C++
-void Node::evaluate(AnimationData& output) {
-    AnimationData input_node_0_data;
-    input_node_0->evaluate(input_node_0_data);
-  
-    AnimationData input_node_1_data;
-    input_node_1->evaluate(input_node_1_data);
-  
-    output = lerp(input_node_0_data, input_node_1_data, blend_weight);
-}
-```
-
-* [-] Makes Blend Tree evaluation recursive.
 
 #### Indirect input node references
 
@@ -360,63 +352,72 @@ void BlendTree::initialize_tree() {
 }
 
 void BlendTree::activate_inputs() {
-    for (int i = 0; i < num_nodes; i++) {
+    for (int i = 0; i < nodes.size(); i++) {
         if (nodes[i].is_active()) {
             nodes[i].activate_inputs()
         }
     }
 }
 
-void Blend2Node::activate_inputs() {
-    if (weight < EPS) {
-        input_node_0->set_active(false);
-    } else {
-        input_node_0->set_active(true);
-    }
-
-    if (weight > 1.0 - EPS) {
-        input_node_1->set_active(false);
-    } else {
-        input_node_1->set_active(true);
-    }
-}
-
 void BlendTree::calculate_sync_tracks() {
-   for (int i = num_nodes; i > 0; i--) {
+    for (int i = nodes.size() - 1; i > 0; i--) {
         if (nodes[i]->is_active()) {
             nodes[i]->calculate_sync_track();
         }
-   }
+    }
 }
 
-void BlendTree::propagate_time() {
-   for (int i = 1; i < num_nodes; i++) {
+void BlendTree::update_time() {
+   for (int i = 1; i < nodes.size(); i++) {
         if (nodes[i]->is_active()) {
-            nodes[i]->update_time();
+            if (nodes[i]->is_synced()) {
+                nodes[i]->update_time(node_parents[i]->node_time_info);
+            } else {
+                nodes[i]->update_time(node_parents[i]->node_time_info);
+            }
         }
    }
 }
 
 void BlendTree::evaluate(AnimationData& output) {
-    for (int i = num_nodes; i > 0; i--) {
+    for (int i = nodes.size() - 1; i > 0; i--) {
         if (nodes[i]->is_active()) {
             nodes[i]->output = AnimationDataPool::allocate();
             nodes[i]->evaluate();
             
             // node[i] is done, so we can deallocate the output handles of all input nodes of node[i].
-            for (AnimationGraphnNode& input_nodes: input_nodes[i]) {
-                AnimationDataPool::deallocate(nodes[i].output);
+            for (AnimationGraphnNode& input_node: input_nodes[i]) {
+                AnimationDataPool::deallocate(input_node.output);
             }
+            
+            nodes[i]->set_active(false);
         }
-        
-        nodes[i]->set_active(false);
     }
     
-    output = nodes[0].output;
+    std::move(output, nodes[0].output);
+}
 
-    // free output buffers    
-    for (int i = 1; i < num_nodes; i++) {
-        AnimationDataPool::deallocate(nodes[i].output);
+void Blend2Node::activate_inputs() {
+    input_node_0->set_active(weight < 1.0 - EPS);
+    input_node_1->set_active(weight > EPS);
+}
+
+void Blend2Node::calculate_sync_track() {
+    if (input_node_0->is_active()) {
+        sync_track = input_node_0->sync_track;
+    }
+    
+    if (input_node_1->is_active()) {
+        sync_track.blend(input_node_1->sync_track, blend_weight);
+    }
+}
+
+void Blend2Node::update_time(double p_delta) {
+    if (!sync_enabled) {
+        node_time_info.position = node_time_info.position + p_delta;
+    } else {
+        node_time_info.position = node_time_info.position + p_delta;
+        double sync_time = sync_track.calculate_sync_time(node_time_info.position);
     }
 }
 
