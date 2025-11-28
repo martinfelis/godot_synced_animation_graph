@@ -55,6 +55,128 @@ Some nodes have special names in the Blend Tree:
   is called the parent node. The output socket has no parent and in the example above The Blend2 node is the parent of
   both AnimationA and TimeScale. Conversely, AnimationA and TimeScale are child nodes of the Blend2 node.
 
+## Blend Tree Evaluation Process
+
+### Description
+
+Evaluation of a node happens in multiple phases:
+
+1. ActivateInputs(): right to left (i.e. from the root node via depth first to the leave nodes)
+2. CalculateSyncTracks(): left to right (leave nodes to root node)
+3. UpdateTime(): right to left
+4. Evaluate(): left to right
+
+One question here is how to transport the actual data from one node to another. There are essentially two options:
+
+### Blend Tree Evaluation
+
+```c++
+// BlendTree.cpp
+void BlendTree::initialize_tree() {
+    for (int i = 0; ci < num_connections; i++) {
+        const Connection& connection = connections[i];
+        connection.target_node->set_input_node(connection.target_socket_name, connection.source_node);
+    }
+}
+
+void BlendTree::activate_inputs() {
+    for (int i = 0; i < nodes.size(); i++) {
+        if (nodes[i].is_active()) {
+            nodes[i].activate_inputs()
+        }
+    }
+}
+
+void BlendTree::calculate_sync_tracks() {
+    for (int i = nodes.size() - 1; i > 0; i--) {
+        if (nodes[i]->is_active()) {
+            nodes[i]->calculate_sync_track();
+        }
+    }
+}
+
+void BlendTree::update_time() {
+   for (int i = 1; i < nodes.size(); i++) {
+        if (nodes[i]->is_active()) {
+            if (nodes[i]->is_synced()) {
+                nodes[i]->update_time(node_parents[i]->node_time_info);
+            } else {
+                nodes[i]->update_time(node_parents[i]->node_time_info);
+            }
+        }
+   }
+}
+
+void BlendTree::evaluate(AnimationData& output) {
+    for (int i = nodes.size() - 1; i > 0; i--) {
+        if (nodes[i]->is_active()) {
+            nodes[i]->output = AnimationDataPool::allocate();
+            nodes[i]->evaluate();
+            
+            // node[i] is done, so we can deallocate the output handles of all input nodes of node[i].
+            for (AnimationGraphnNode& input_node: input_nodes[i]) {
+                AnimationDataPool::deallocate(input_node.output);
+            }
+            
+            nodes[i]->set_active(false);
+        }
+    }
+    
+    std::move(output, nodes[0].output);
+}
+
+// Blend2Node.cpp
+void Blend2Node::activate_inputs() {
+    input_node_0->set_active(weight < 1.0 - EPS);
+    input_node_1->set_active(weight > EPS);
+}
+
+void Blend2Node::calculate_sync_track() {
+    if (input_node_0->is_active()) {
+        sync_track = input_node_0->sync_track;
+    }
+    
+    if (input_node_1->is_active()) {
+        sync_track.blend(input_node_1->sync_track, blend_weight);
+    }
+}
+
+void Blend2Node::update_time(SyncedAnimationNode::NodeTimeInfo time_info) {
+    if (!sync_enabled) {
+        node_time_info.position = node_time_info.position + time_info.delta;
+    } else {
+        // TODO
+    }
+}
+
+void Blend2Node::evaluate(AnimationData& output) {
+    output = lerp(input_node_0->get_output(), input_node_1_data->get_output(), blend_weight);
+}
+
+// TimeScaleNode.cpp
+void TimeScaleNode::activate_inputs() {
+    input_node_0->set_active(true);
+}
+
+void TimeScaleNode::calculate_sync_track() {
+    sync_track = input_node_0.sync_track;
+    sync_track.duration *= time_scale;
+}
+
+void TimeScaleNode::update_time(SyncedAnimationNode::NodeTimeInfo time_info) {
+    if (!sync_enabled) {
+        node_time_info.position = node_time_info.position + time_info.delta;
+    } else {
+        // TODO
+    }
+}
+
+void TimeScaleNode::evaluate(AnimationData& output) {
+    std::swap(output, input_node_0->output);
+}
+
+```
+
 ## State Machines
 
 ```plantuml
@@ -76,6 +198,10 @@ Run -up-> Fall
 
 @enduml
 ```
+
+# Feature Considerations
+
+This section contains design decisions and their tradeoffs on what the animation graphs should support.
 
 ## 1. Generalized data connections / Support of math nodes (or non-AnimationNodes in general)
 
@@ -326,131 +452,6 @@ also general input values.
 ### Open issues
 
 * Inputs to embedded state machines?
-
-## 6. Blend Tree Evaluation Process
-
-### Description
-
-Evaluation of a node happens in multiple phases:
-
-1. ActivateInputs(): right to left (i.e. from the root node via depth first to the leave nodes)
-2. CalculateSyncTracks(): left to right (leave nodes to root node)
-3. UpdateTime(): right to left
-4. Evaluate(): left to right
-
-One question here is how to transport the actual data from one node to another. There are essentially two options:
-
-#### Indirect input node references
-
-```c++
-// BlendTree.cpp
-void BlendTree::initialize_tree() {
-    for (int i = 0; ci < num_connections; i++) {
-        const Connection& connection = connections[i];
-        connection.target_node->set_input_node(connection.target_socket_name, connection.source_node);
-    }
-}
-
-void BlendTree::activate_inputs() {
-    for (int i = 0; i < nodes.size(); i++) {
-        if (nodes[i].is_active()) {
-            nodes[i].activate_inputs()
-        }
-    }
-}
-
-void BlendTree::calculate_sync_tracks() {
-    for (int i = nodes.size() - 1; i > 0; i--) {
-        if (nodes[i]->is_active()) {
-            nodes[i]->calculate_sync_track();
-        }
-    }
-}
-
-void BlendTree::update_time() {
-   for (int i = 1; i < nodes.size(); i++) {
-        if (nodes[i]->is_active()) {
-            if (nodes[i]->is_synced()) {
-                nodes[i]->update_time(node_parents[i]->node_time_info);
-            } else {
-                nodes[i]->update_time(node_parents[i]->node_time_info);
-            }
-        }
-   }
-}
-
-void BlendTree::evaluate(AnimationData& output) {
-    for (int i = nodes.size() - 1; i > 0; i--) {
-        if (nodes[i]->is_active()) {
-            nodes[i]->output = AnimationDataPool::allocate();
-            nodes[i]->evaluate();
-            
-            // node[i] is done, so we can deallocate the output handles of all input nodes of node[i].
-            for (AnimationGraphnNode& input_node: input_nodes[i]) {
-                AnimationDataPool::deallocate(input_node.output);
-            }
-            
-            nodes[i]->set_active(false);
-        }
-    }
-    
-    std::move(output, nodes[0].output);
-}
-
-void Blend2Node::activate_inputs() {
-    input_node_0->set_active(weight < 1.0 - EPS);
-    input_node_1->set_active(weight > EPS);
-}
-
-void Blend2Node::calculate_sync_track() {
-    if (input_node_0->is_active()) {
-        sync_track = input_node_0->sync_track;
-    }
-    
-    if (input_node_1->is_active()) {
-        sync_track.blend(input_node_1->sync_track, blend_weight);
-    }
-}
-
-void Blend2Node::update_time(double p_delta) {
-    if (!sync_enabled) {
-        node_time_info.position = node_time_info.position + p_delta;
-    } else {
-        node_time_info.position = node_time_info.position + p_delta;
-        double sync_time = sync_track.calculate_sync_time(node_time_info.position);
-    }
-}
-
-void Blend2Node::evaluate(AnimationData& output) {
-    output = lerp(input_node_0->get_output(), input_node_1_data->get_output(), blend_weight);
-}
-
-void TimeScaleNode::evaluate(AnimationData& output) {
-    std::swap(output, input_node_0->output);
-}
-```
-
-```c++
-// Node.cpp
-void Node::evaluate(AnimationData& output) {
-    output = lerp(input_node_0->get_output(), input_node_1_data->get_output(), blend_weight);
-}
-```
-
-#### Data injected by Blend Tree
-
-Nodes store references or pointers to all input nodes.
-
-```c++
-void Node::evaluate(const Array<const AnimationData*>& animation_inputs, const Array<const Variant>& data_inputs>, AnimationData& output) {
-    output = lerp(animation_inputs[0], animation_inputs[1], data_inputs[0]);
-}
-```
-
-* [+] This would allow easy extension of animation nodes via GDScript or GDExtension based nodes.
-    * [-] Though this could maybe be achieved using a specific customizable node for other approaches.
-* [-] Easy to mess up indices.
-* [-] Type safety of data_inputs messy.
 
 ## Glossary
 
