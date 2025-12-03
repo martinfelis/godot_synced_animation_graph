@@ -11,11 +11,11 @@ class SyncedAnimationGraph : public Node {
 	GDCLASS(SyncedAnimationGraph, Node);
 
 private:
-	NodePath animation_tree_path;
+	NodePath animation_player_path;
 	NodePath skeleton_path;
 
-	void set_animation_tree(const NodePath &p_path);
-	NodePath get_animation_tree() const;
+	void set_animation_player(const NodePath &p_path);
+	NodePath get_animation_player() const;
 
 	void set_skeleton(const NodePath &p_path);
 	NodePath get_skeleton() const;
@@ -35,7 +35,6 @@ protected:
 	bool active = true;
 
 public:
-	void _ready(const NodePath &p_path);
 	void _process_graph(double p_delta, bool p_update_only = false);
 
 	void set_active(bool p_active);

@@ -17,15 +17,15 @@ void SyncedAnimationGraph::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_callback_mode_method", "mode"), &SyncedAnimationGraph::set_callback_mode_method);
 	ClassDB::bind_method(D_METHOD("get_callback_mode_method"), &SyncedAnimationGraph::get_callback_mode_method);
 
-	ClassDB::bind_method(D_METHOD("set_animation_tree", "animation_tree"), &SyncedAnimationGraph::set_animation_tree);
-	ClassDB::bind_method(D_METHOD("get_animation_tree"), &SyncedAnimationGraph::get_animation_tree);
-	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "animation_tree", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "AnimationTree"), "set_animation_tree", "get_animation_tree");
+	ClassDB::bind_method(D_METHOD("set_animation_player", "animation_player"), &SyncedAnimationGraph::set_animation_player);
+	ClassDB::bind_method(D_METHOD("get_animation_player"), &SyncedAnimationGraph::get_animation_player);
+	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "animation_player", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "AnimationPlayer"), "set_animation_player", "get_animation_player");
+	ADD_SIGNAL(MethodInfo(SNAME("animation_player_changed")));
 
 	ClassDB::bind_method(D_METHOD("set_skeleton", "skeleton"), &SyncedAnimationGraph::set_skeleton);
 	ClassDB::bind_method(D_METHOD("get_skeleton"), &SyncedAnimationGraph::get_skeleton);
 	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "skeleton", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "Skeleton3D"), "set_skeleton", "get_skeleton");
-
-	ADD_SIGNAL(MethodInfo(SNAME("animation_tree_changed")));
+	ADD_SIGNAL(MethodInfo(SNAME("skeleton_changed")));
 }
 
 void SyncedAnimationGraph::_notification(int p_what) {
@@ -100,19 +100,21 @@ AnimationMixer::AnimationCallbackModeDiscrete SyncedAnimationGraph::get_callback
 	return callback_mode_discrete;
 }
 
-void SyncedAnimationGraph::set_animation_tree(const NodePath &p_path) {
-	animation_tree_path = p_path;
+void SyncedAnimationGraph::set_animation_player(const NodePath &p_path) {
+	animation_player_path = p_path;
 	if (p_path.is_empty()) {
 		//		set_root_node(SceneStringName(path_pp));
 		//		while (animation_libraries.size()) {
 		//			remove_animation_library(animation_libraries[0].name);
 		//		}
 	}
-	emit_signal(SNAME("animation_tree_changed")); // Needs to unpin AnimationPlayerEditor.
+	_graph_context.animation_player = Object::cast_to<AnimationPlayer>(get_node_or_null(animation_player_path));
+
+	emit_signal(SNAME("animation_player_changed")); // Needs to unpin AnimationPlayerEditor.
 }
 
-NodePath SyncedAnimationGraph::get_animation_tree() const {
-	return animation_tree_path;
+NodePath SyncedAnimationGraph::get_animation_player() const {
+	return animation_player_path;
 }
 
 void SyncedAnimationGraph::set_skeleton(const NodePath &p_path) {
@@ -145,12 +147,7 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 		return;
 	}
 
-	AnimationTree *animation_tree = Object::cast_to<AnimationTree>(get_node_or_null(animation_tree_path));
-	if (!animation_tree) {
-		return;
-	}
-
-	Ref<Animation> animation = animation_tree->get_animation("Walk-InPlace");
+	Ref<Animation> animation = _graph_context.animation_player->get_animation("animation_library/Walk-InPlace");
 	if (!animation.is_valid()) {
 		return;
 	}
