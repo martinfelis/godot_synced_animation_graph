@@ -177,17 +177,13 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 		Animation::TrackType ttype = animation_track->type;
 		switch (ttype) {
 			case Animation::TYPE_POSITION_3D: {
-				AnimationMixer::TrackCacheTransform *track_xform = memnew(AnimationMixer::TrackCacheTransform);
-				track_xform->type = Animation::TYPE_POSITION_3D;
-				track_xform->bone_idx = -1;
-				track_xform->skeleton_id = skeleton->get_instance_id();
 				NodePath path = animation->track_get_path(i);
 
 				double animation_time = Math::fposmod(current_time, animation->get_length());
 				if (path.get_subname_count() == 1) {
+
 					int bone_idx = skeleton->find_bone(path.get_subname(0));
 					if (bone_idx != -1) {
-						track_xform->bone_idx = bone_idx;
 						Vector3 pos;
 						animation->try_position_track_interpolate(i, animation_time, &pos);
 						skeleton->set_bone_pose_position(bone_idx, pos);
@@ -196,17 +192,12 @@ void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
 				break;
 			}
 			case Animation::TYPE_ROTATION_3D: {
-				AnimationMixer::TrackCacheTransform *track_xform = memnew(AnimationMixer::TrackCacheTransform);
-				track_xform->type = Animation::TYPE_POSITION_3D;
-				track_xform->bone_idx = -1;
-				track_xform->skeleton_id = skeleton->get_instance_id();
 				NodePath path = animation->track_get_path(i);
 
 				double animation_time = Math::fposmod(current_time, animation->get_length());
 				if (path.get_subname_count() == 1) {
 					int bone_idx = skeleton->find_bone(path.get_subname(0));
 					if (bone_idx != -1) {
-						track_xform->bone_idx = bone_idx;
 						Quaternion rot;
 						animation->try_rotation_track_interpolate(i, animation_time, &rot);
 						skeleton->set_bone_pose_rotation(bone_idx, rot);
