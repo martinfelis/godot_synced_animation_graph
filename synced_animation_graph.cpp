@@ -31,7 +31,12 @@ void SyncedAnimationGraph::_bind_methods() {
 void SyncedAnimationGraph::_notification(int p_what) {
 	switch (p_what) {
 		case Node::NOTIFICATION_READY: {
-			_set_process(true);
+			_setup_evaluation_context();
+			_setup_graph();
+
+			if (active) {
+				_set_process(true);
+			}
 		} break;
 
 		case Node::NOTIFICATION_INTERNAL_PROCESS: {
@@ -108,7 +113,7 @@ void SyncedAnimationGraph::set_animation_player(const NodePath &p_path) {
 		//			remove_animation_library(animation_libraries[0].name);
 		//		}
 	}
-	_graph_context.animation_player = Object::cast_to<AnimationPlayer>(get_node_or_null(animation_player_path));
+	graph_context.animation_player = Object::cast_to<AnimationPlayer>(get_node_or_null(animation_player_path));
 
 	emit_signal(SNAME("animation_player_changed")); // Needs to unpin AnimationPlayerEditor.
 }
@@ -125,6 +130,8 @@ void SyncedAnimationGraph::set_skeleton(const NodePath &p_path) {
 		//			remove_animation_library(animation_libraries[0].name);
 		//		}
 	}
+	graph_context.skeleton_3d = Object::cast_to<Skeleton3D>(get_node_or_null(skeleton_path));
+
 	emit_signal(SNAME("skeleton_changed")); // Needs to unpin AnimationPlayerEditor.
 }
 
@@ -132,84 +139,60 @@ NodePath SyncedAnimationGraph::get_skeleton() const {
 	return skeleton_path;
 }
 
-void SyncedAnimationGraph::_ready(const NodePath &p_path) {
-	print_line(vformat("synced animation graph ready!"));
+void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
+	if (root_node == nullptr) {
+		return;
+	}
+
+	root_node->activate_inputs();
+	root_node->calculate_sync_track();
+	root_node->update_time(p_delta);
+	AnimationData output_data;
+	root_node->evaluate(graph_context, output_data);
+
+	_apply_animation_data(output_data);
 }
 
-void SyncedAnimationGraph::_process_graph(double p_delta, bool p_update_only) {
-	if (skeleton_path.is_empty()) {
-		return;
-	}
+void SyncedAnimationGraph::_apply_animation_data(AnimationData output_data) const {
+	for (KeyValue<Animation::TypeHash, AnimationData::TrackValue *> &K : output_data.track_values) {
+		const AnimationData::TrackValue *track_value = K.value;
+		switch (track_value->type) {
+			case AnimationData::TrackType::TYPE_POSITION_3D: {
+				const AnimationData::PositionTrackValue *position_value = static_cast<const AnimationData::PositionTrackValue *>(track_value);
 
-	float current_time = Time::get_singleton()->get_unix_time_from_system();
-	Skeleton3D *skeleton = Object::cast_to<Skeleton3D>(get_node_or_null(skeleton_path));
-	if (!skeleton) {
-		return;
-	}
+				NodePath path = position_value->track->path;
 
-	Ref<Animation> animation = _graph_context.animation_player->get_animation("animation_library/Walk-InPlace");
-	if (!animation.is_valid()) {
-		return;
-	}
-
-	static double debug_time = 0.;
-	debug_time += p_delta;
-	if (debug_time > 2.0) {
-		debug_time = 0.;
-	}
-
-	current_time = debug_time;
-
-	//	LocalVector<AnimationMixer::TrackCache *> &track_num_to_track_cache = animation_track_num_to_track_cache[a];
-	const Vector<Animation::Track *> tracks = animation->get_tracks();
-	Animation::Track *const *tracks_ptr = tracks.ptr();
-	// real_t a_length = animation->get_length();
-	int count = tracks.size();
-	for (int i = 0; i < count; i++) {
-		const Animation::Track *animation_track = tracks_ptr[i];
-		if (!animation_track->enabled) {
-			continue;
-		}
-
-		Animation::TrackType ttype = animation_track->type;
-		switch (ttype) {
-			case Animation::TYPE_POSITION_3D: {
-				NodePath path = animation->track_get_path(i);
-
-				double animation_time = Math::fposmod(current_time, animation->get_length());
 				if (path.get_subname_count() == 1) {
-
-					int bone_idx = skeleton->find_bone(path.get_subname(0));
+					int bone_idx = graph_context.skeleton_3d->find_bone(path.get_subname(0));
 					if (bone_idx != -1) {
-						Vector3 pos;
-						animation->try_position_track_interpolate(i, animation_time, &pos);
-						skeleton->set_bone_pose_position(bone_idx, pos);
+						graph_context.skeleton_3d->set_bone_pose_position(position_value->bone_idx, position_value->position);
 					}
 				}
+
 				break;
 			}
-			case Animation::TYPE_ROTATION_3D: {
-				NodePath path = animation->track_get_path(i);
+			case AnimationData::TrackType::TYPE_ROTATION_3D: {
+				const AnimationData::RotationTrackValue *rotation_value = static_cast<const AnimationData::RotationTrackValue *>(track_value);
 
-				double animation_time = Math::fposmod(current_time, animation->get_length());
+				NodePath path = rotation_value->track->path;
+
 				if (path.get_subname_count() == 1) {
-					int bone_idx = skeleton->find_bone(path.get_subname(0));
+					int bone_idx = graph_context.skeleton_3d->find_bone(path.get_subname(0));
 					if (bone_idx != -1) {
-						Quaternion rot;
-						animation->try_rotation_track_interpolate(i, animation_time, &rot);
-						skeleton->set_bone_pose_rotation(bone_idx, rot);
+						graph_context.skeleton_3d->set_bone_pose_rotation(rotation_value->bone_idx, rotation_value->rotation);
 					}
 				}
+
 				break;
 			}
 			default: {
+				print_line(vformat("Unsupported track type %d", track_value->type));
 				break;
 			}
 		}
 	}
 
-	//	skeleton->set_bone_pose_position(3, Vector3(sin(current_time) * 10., 0., 0.));
-	skeleton->force_update_all_bone_transforms();
+	graph_context.skeleton_3d->force_update_all_bone_transforms();
 }
 
 void SyncedAnimationGraph::_set_process(bool p_process, bool p_force) {
@@ -223,70 +206,38 @@ void SyncedAnimationGraph::_set_process(bool p_process, bool p_force) {
 	processing = p_process;
 }
 
-SyncedAnimationGraph::SyncedAnimationGraph() {
+void SyncedAnimationGraph::_setup_evaluation_context() {
+	_cleanup_evaluation_context();
+
+	graph_context.animation_player = Object::cast_to<AnimationPlayer>(get_node_or_null(animation_player_path));
+	graph_context.skeleton_3d = Object::cast_to<Skeleton3D>(get_node_or_null(skeleton_path));
 }
 
-void AnimationSamplerNode::initialize(GraphEvaluationContext &context) {
-	animation = context.animation_tree->get_animation(animation_name);
+void SyncedAnimationGraph::_cleanup_evaluation_context() {
+	graph_context.animation_player = nullptr;
+	graph_context.skeleton_3d = nullptr;
 }
 
-
-void AnimationSamplerNode::evaluate(GraphEvaluationContext &context, AnimationData &output) {
-	const Vector<Animation::Track *> tracks = animation->get_tracks();
-	Animation::Track *const *tracks_ptr = tracks.ptr();
-	// real_t a_length = animation->get_length();
-	int count = tracks.size();
-	for (int i = 0; i < count; i++) {
-		AnimationData::TrackValue *track_value = nullptr;
-		const Animation::Track *animation_track = tracks_ptr[i];
-		const NodePath& track_node_path = animation_track->path;
-		if (!animation_track->enabled) {
-			continue;
-		}
-
-		Animation::TrackType ttype = animation_track->type;
-		switch (ttype) {
-			case Animation::TYPE_POSITION_3D: {
-				AnimationData::PositionTrackValue *position_track_value = memnew(AnimationData::PositionTrackValue);
-
-				if (track_node_path.get_subname_count() == 1) {
-					int bone_idx = context.skeleton_3d->find_bone(track_node_path.get_subname(0));
-					if (bone_idx != -1) {
-						position_track_value->bone_idx = bone_idx;
-						animation->try_position_track_interpolate(i, node_time_info.position, &position_track_value->position);
-					}
-				} else {
-					// TODO
-					assert(false && !"Not yet implemented");
-				}
-
-				track_value = position_track_value;
-				break;
-			}
-			case Animation::TYPE_ROTATION_3D: {
-				AnimationData::RotationTrackValue *rotation_track_value = memnew(AnimationData::RotationTrackValue);
-
-				if (track_node_path.get_subname_count() == 1) {
-					int bone_idx = context.skeleton_3d->find_bone(track_node_path.get_subname(0));
-					if (bone_idx != -1) {
-						rotation_track_value->bone_idx = bone_idx;
-						animation->try_rotation_track_interpolate(i, node_time_info.position, &rotation_track_value->rotation);
-					}
-				} else {
-					// TODO
-					assert(false && !"Not yet implemented");
-				}
-
-				track_value = rotation_track_value;
-				break;
-			}
-			default: {
-				// TODO
-				assert(false && !"Not yet implemented");
-				break;
-			}
-		}
-
-		output.set_value(animation_track->thash, track_value);
+void SyncedAnimationGraph::_setup_graph() {
+	if (root_node != nullptr) {
+		_cleanup_graph();
 	}
+
+	AnimationSamplerNode *sampler_node = memnew(AnimationSamplerNode);
+	sampler_node->animation_name = "animation_library/Walk-InPlace";
+
+	root_node = sampler_node;
+
+	root_node->initialize(graph_context);
+}
+
+void SyncedAnimationGraph::_cleanup_graph() {
+	if (root_node == nullptr) {
+		return;
+	}
+
+	memfree(root_node);
+}
+
+SyncedAnimationGraph::SyncedAnimationGraph() {
 }
